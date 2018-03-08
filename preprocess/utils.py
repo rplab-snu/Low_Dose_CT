@@ -19,8 +19,7 @@ def load_3d_dcm(dcm_path):
     Dicom list sorted by ImagePositionPatient[2]
     Tag (0020, 0032) Image Position (Patient) DS: ['-158.135803', '-179.035797', '-75.699997']
     """
-    # dcms = [pydicom.dcmread(dcm_path + '/' + s) for s in os.listdir(dcm_path)]
-    dcms = [pydicom.dcmread(dcm_path + "\\" + s) for s in os.listdir(dcm_path)]
+    dcms = [pydicom.dcmread(os.path.join(dcm_path, s)) for s in os.listdir(dcm_path)]
     dcms.sort(key = lambda x: float(x.ImagePositionPatient[2]))
     try:
         slice_thickness = np.abs(dcms[0].ImagePositionPatient[2] - dcms[1].ImagePositionPatient[2])
