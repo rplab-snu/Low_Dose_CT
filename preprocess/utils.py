@@ -6,17 +6,18 @@ from skimage.transform import iradon, iradon_sart
 import matplotlib.pyplot as plt
 from glob import glob
 
-def load_3d_dcm(dcm_path, image_type="CT"):
+def load_3d_dcm(dcm_path, parsetype="CT"):
     """
-    Load 3D Slice CT Image
+    Load 3D Slice Image
     https://www.kaggle.com/gzuidhof/full-preprocessing-tutorials
     Parameters
     ----------
     dcm_path    : Dicom sequence directory path
-    image_type  : Specifies the type of image
-                  If you want to specify the modality of image, use '_' symbol
+    parsetype   : Type of image and modality
+                  To specify the modality of image, use '_' symbol
                   For example, in order to get WT image of PET, image_type="PET_WT"
-                  Default is CT
+                  If modality is not specified, it will parse all available files
+
     Return
     ------
     Dicom list sorted by ImagePositionPatient[2]
@@ -25,22 +26,22 @@ def load_3d_dcm(dcm_path, image_type="CT"):
 
     def _parse_image(dcm_path, image_type, modality="not_specified"):
         """
-        image_type  :    CT, PET
-        pet_type    :    Series Description of DCM Header
-                         for example, WT / WC / WS / WM / ALL
-                         if "ALL" is selected, do not specify files being parsed
+        image_type  :    Type of image.
+                         CT | PET is available for now
+                         If you want to add other image types, modify *types* variable
+        modality    :    Modality of image.
+                         For example, WT / WC / WS / WM.
+                         If "not_specified", it will parse all available files
         * This method will automatically remove `-` from header description in order to recognize 'W-T' label style
         """
         types = {"CT": "CT Image Storage", "PET": "Positron Emission Tomography Image Storage"}
         parsed_list = []
-        parsed_cnt = 0
         dcm_list = glob(dcm_path + "/*.dcm")
         if modality == "not_specified":
             for dcm in dcm_list:
                 read_data = pydicom.dcmread(dcm)
                 if read_data.SOPClassUID == types[image_type]:
                     parsed_list.append(dcm)
-                    parsed_cnt += 1
         else:
             mod_list_from_data = set()
             for dcm in dcm_list:
@@ -48,23 +49,18 @@ def load_3d_dcm(dcm_path, image_type="CT"):
                 if read_data.SOPClassUID == types[image_type] and modality in str(read_data.SeriesDescription).replace("-",""):
                     # Note : remove `-` in order to make 'W-T' label style into 'WT' label style
                     parsed_list.append(dcm)
-                    parsed_cnt += 1
                 mod_list_from_data.add(read_data.SeriesDescription)
-            if parsed_cnt == 0:
+            if len(parsed_list) == 0:
                 print("Error : DCM list is empty. Check the modality labels below.")
                 print("  Modality labels from the data:")
                 for mod_label in mod_list_from_data:
                     print("  \t" + mod_label, end="\n")
                 print("program terminated")
                 exit()
-        print("{0} {1} Images has been parsed. (modality = {2})".format(parsed_cnt, image_type, modality))
+        print("{0} {1} Images has been parsed. (modality = {2})".format(len(parsed_list), image_type, modality))
         return parsed_list
 
-    image_type = image_type.split("_")
-    if len(image_type) == 1:
-        dcms = [pydicom.dcmread(dcm) for dcm in _parse_image(dcm_path, image_type[0])]
-    elif len(image_type) == 2:
-        dcms = [pydicom.dcmread(dcm) for dcm in _parse_image(dcm_path, image_type[0], image_type[1])]
+    dcms = [pydicom.dcmread(dcm) for dcm in _parse_image(dcm_path, *parsetype.split("_"))]
 
     dcms.sort(key = lambda x: float(x.ImagePositionPatient[2]))
     try:
@@ -167,18 +163,6 @@ def plot_3d(image, threshold=-300):
 
     plt.show()
 
-def parse_ct(dcm_path):
-    ct_list = []
-    ct_cnt = 0
-    dcm_list = glob(dcm_path + "/*.dcm")
-    for dcm in dcm_list:
-        read_data = pydicom.dcmread(dcm)
-        if read_data[0x0008, 0x0016].value == "CT Image Storage":
-            ct_list.append(dcm)
-            ct_cnt += 1
-    print("{0} CT Images has been parsed.".format(ct_cnt))
-    return ct_list
-
 
 class Plot2DSlice:
     """
@@ -250,13 +234,13 @@ if __name__ == "__main__":
         print("  Sinogram Range", sinogram.min(), sinogram.max(), sinogram.shape)
         print("  inverse Range : ", fbp.min(), fbp.max(), fbp.shape)
 
-    for folder in glob(r"\FDG-PET2\*"):
+    for folder in glob(r"C:\Users\yjh36\Desktop\TMT LAB\FDG-PET2\*"):
         print(folder + " is projected")
         dcm_path = folder
 
         # dcms = load_3d_dcm(dcm_path, image_type="CT")
         # dcms = load_3d_dcm(dcm_path, image_type="PET")
-        dcms = load_3d_dcm(dcm_path, image_type="PET_WT")
+        dcms = load_3d_dcm(dcm_path, parsetype="PET_WT")
 
         print(len(dcms))
         npys = dcm_to_npy(dcms)
