@@ -4,22 +4,68 @@ import numpy as np
 from skimage.transform import radon
 from skimage.transform import iradon, iradon_sart
 import matplotlib.pyplot as plt
+from glob import glob
 
-def load_3d_dcm(dcm_path):
+def load_3d_dcm(dcm_path, image_type="CT"):
     """
     Load 3D Slice CT Image
     https://www.kaggle.com/gzuidhof/full-preprocessing-tutorials
-
     Parameters
     ----------
-    dcm_path : Dicom sequence directory path
-
+    dcm_path    : Dicom sequence directory path
+    image_type  : Specifies the type of image
+                  If you want to specify the modality of image, use '_' symbol
+                  For example, in order to get WT image of PET, image_type="PET_WT"
+                  Default is CT
     Return
     ------
     Dicom list sorted by ImagePositionPatient[2]
     Tag (0020, 0032) Image Position (Patient) DS: ['-158.135803', '-179.035797', '-75.699997']
     """
-    dcms = [pydicom.dcmread(os.path.join(dcm_path, s)) for s in os.listdir(dcm_path)]
+
+    def _parse_image(dcm_path, image_type, modality="not_specified"):
+        """
+        image_type  :    CT, PET
+        pet_type    :    Series Description of DCM Header
+                         for example, WT / WC / WS / WM / ALL
+                         if "ALL" is selected, do not specify files being parsed
+        * This method will automatically remove `-` from header description in order to recognize 'W-T' label style
+        """
+        types = {"CT": "CT Image Storage", "PET": "Positron Emission Tomography Image Storage"}
+        parsed_list = []
+        parsed_cnt = 0
+        dcm_list = glob(dcm_path + "/*.dcm")
+        if modality == "not_specified":
+            for dcm in dcm_list:
+                read_data = pydicom.dcmread(dcm)
+                if read_data.SOPClassUID == types[image_type]:
+                    parsed_list.append(dcm)
+                    parsed_cnt += 1
+        else:
+            mod_list_from_data = set()
+            for dcm in dcm_list:
+                read_data = pydicom.dcmread(dcm)
+                if read_data.SOPClassUID == types[image_type] and modality in str(read_data.SeriesDescription).replace("-",""):
+                    # Note : remove `-` in order to make 'W-T' label style into 'WT' label style
+                    parsed_list.append(dcm)
+                    parsed_cnt += 1
+                mod_list_from_data.add(read_data.SeriesDescription)
+            if parsed_cnt == 0:
+                print("Error : DCM list is empty. Check the modality labels below.")
+                print("  Modality labels from the data:")
+                for mod_label in mod_list_from_data:
+                    print("  \t" + mod_label, end="\n")
+                print("program terminated")
+                exit()
+        print("{0} {1} Images has been parsed. (modality = {2})".format(parsed_cnt, image_type, modality))
+        return parsed_list
+
+    image_type = image_type.split("_")
+    if len(image_type) == 1:
+        dcms = [pydicom.dcmread(dcm) for dcm in _parse_image(dcm_path, image_type[0])]
+    elif len(image_type) == 2:
+        dcms = [pydicom.dcmread(dcm) for dcm in _parse_image(dcm_path, image_type[0], image_type[1])]
+
     dcms.sort(key = lambda x: float(x.ImagePositionPatient[2]))
     try:
         slice_thickness = np.abs(dcms[0].ImagePositionPatient[2] - dcms[1].ImagePositionPatient[2])
@@ -37,11 +83,9 @@ def dcm_to_npy(dcm, norm=False):
     ----------
     dcm : Single Dicom object(2D), List Dicom object(3D)
     norm : If False :[0 4095]:, True :[0 1]:, default False
-
     Return
     ------
     2D or 3D CT Image(ndarray float32)
-
     Examples
     --------
     >>> dcm = pydicom.dcmread("ex.dcm")
@@ -70,17 +114,14 @@ def get_fbp(ct_img, theta, circle=False, sart=False):
     """
     CT Img -> radon -> sinogram -> iradon -> FBP Img
     Using skimage transform method
-
     Parameters
     ----------
     theta :  projection angle in degree, dtype=np linspace
     circle : boolean, param of radon, default False
     sart : not implemented use only true, boolean, use iradon_sart, default False
-
     Returns
     -------
     sinogram, normalized fbp [0 1] ndarray
-
     Examples
     --------
     >>> sinogram, fbp = get_fbp(ct, theta)
@@ -104,7 +145,7 @@ def get_fbp(ct_img, theta, circle=False, sart=False):
     return sinogram, fbp
 
 def plot_3d(image, threshold=-300):
-    raise NotImplementedError("not implemented")    
+    raise NotImplementedError("not implemented")
     # Position the scan upright,
     # so the head of the patient would be at the top facing the camera
     p = image.transpose(2,1,0)
@@ -126,11 +167,23 @@ def plot_3d(image, threshold=-300):
 
     plt.show()
 
+def parse_ct(dcm_path):
+    ct_list = []
+    ct_cnt = 0
+    dcm_list = glob(dcm_path + "/*.dcm")
+    for dcm in dcm_list:
+        read_data = pydicom.dcmread(dcm)
+        if read_data[0x0008, 0x0016].value == "CT Image Storage":
+            ct_list.append(dcm)
+            ct_cnt += 1
+    print("{0} CT Images has been parsed.".format(ct_cnt))
+    return ct_list
+
+
 class Plot2DSlice:
     """
     Plotting a 2D slice
     move slice by `j, k` keys
-
     Examples
     --------
     >>> dcms = load_3d_dcm(dcm_path)
@@ -177,7 +230,7 @@ class Plot2DSlice:
 if __name__ == "__main__":
     import random
     import os
-    from glob import glob
+
 
     from skimage import measure, morphology
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -197,14 +250,19 @@ if __name__ == "__main__":
         print("  Sinogram Range", sinogram.min(), sinogram.max(), sinogram.shape)
         print("  inverse Range : ", fbp.min(), fbp.max(), fbp.shape)
 
-    dcm_path = "/media/rplab/2EC4179FC417687B/LowDoseCT/00_Data/CT_Lymph_Nodes/ABD_LYMPH_003/09-14-2014-ABDLYMPH003-abdominallymphnodes-39052/abdominallymphnodes-65663"
-    dcm_path = r"C:\Users\Administrator\Documents\dcms\abdominallymphnodes-51545"
-    dcms = load_3d_dcm(dcm_path)    
-    print(len(dcms))
-    npys = dcm_to_npy(dcms)
-    print(npys.shape)
-    # plot_3d(npys, 400)
-    Plot2DSlice(npys)
+    for folder in glob(r"\FDG-PET2\*"):
+        print(folder + " is projected")
+        dcm_path = folder
+
+        # dcms = load_3d_dcm(dcm_path, image_type="CT")
+        # dcms = load_3d_dcm(dcm_path, image_type="PET")
+        dcms = load_3d_dcm(dcm_path, image_type="PET_WT")
+
+        print(len(dcms))
+        npys = dcm_to_npy(dcms)
+        print(npys.shape)
+        # plot_3d(npys, 400)
+        Plot2DSlice(npys)
 
     """
     dcm_path = "/media/rplab/2EC4179FC417687B/DW_MAR/01_MA_Image/44295853/44295853_0059.DCM"
